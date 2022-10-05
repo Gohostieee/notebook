@@ -1,13 +1,17 @@
 import type {NextPage} from 'next'
 import Head from 'next/head'
-import {useState} from "react";
-import {Bookbag, Notebook, NotebookFramework} from "../interfaces";
-import {BaseDirectory, createDir, writeBinaryFile} from '@tauri-apps/api/fs';
+import {useEffect, useState} from "react";
+import {Bookbag, NotebookFramework, Notebook} from "../interfaces";
+import {BaseDirectory, createDir, readDir, writeBinaryFile, readBinaryFile} from '@tauri-apps/api/fs';
+import {getDateTime, getMonthDayY} from "../lib/formating";
+import {readFile} from "fs";
+import Link from "next/link";
 
 const Home: NextPage = () => {
     let utf8Encode = new TextEncoder();
+    let utf8Decode = new TextDecoder()
     const buttonStyle = "rounded-lg border-2 w-[180px] h-[140px] bg-black hover:bg-cyan-400 hover:bg-opacity-30 bg-opacity-10 hover:border-blue-500 transition-colors duration-300 p-8 pb-12 pt-12 block m-auto border-gray-500\n"
-    const [bag, useBag] = useState<Bookbag>(null), [menu, useMenu] = useState<string>("create"), [error, useError] = useState("");
+    const [bag, useBag] = useState<Bookbag>(null), [menu, useMenu] = useState<string>("create"), [error, useError] = useState(""), [load, useLoad] = useState(false);
 
     function ChangeMenu(menu: string) {
         useMenu(menu)
@@ -15,9 +19,9 @@ const Home: NextPage = () => {
 
     async function SubmitData(x) {
         let val: string | null;
-        let notebook:NotebookFramework = {description: "", teacher: "", title: "", pages:[]};
+        let notebook = new Notebook({description: "", teacher: "", title: "", pages: []});
         let err = ""
-
+        let tempMenu = menu
         x.preventDefault()
         for (const element in x.target.elements) {
             if (x.target.elements[element].type == "text") {
@@ -35,9 +39,20 @@ const Home: NextPage = () => {
         }
         useError(err);
         if (err === "") {
-            console.log(notebook)
-            await writeBinaryFile('avatar.NTBK', utf8Encode.encode(JSON.stringify(notebook)), {dir: BaseDirectory.Document});
+            try {
+                await readDir("notebook//saves", {dir: BaseDirectory.Document});
+            } catch (err) {
+                await createDir('notebook//saves', {dir: BaseDirectory.Document, recursive: true});
+            }
+            try {
+                await writeBinaryFile(`notebook//saves//${notebook.title}-${getDateTime(notebook.date)}.NTBK`, utf8Encode.encode(JSON.stringify(notebook)), {dir: BaseDirectory.Document});
+                tempMenu = "main"
+            } catch (err) {
+                tempMenu = "main"
+            }
+
         }
+        useMenu(tempMenu)
     }
 
     const SwitchMenu = () => {
@@ -93,6 +108,51 @@ const Home: NextPage = () => {
                 )
         }
     }
+
+    async function GetBag() {
+        let files;
+        let tempBag = new Bookbag({Notebooks: [], Length: 0});
+        let tempNote: Notebook;
+        try {
+            files = await readDir("notebook//saves", {dir: BaseDirectory.Document});
+            for (const file in files) {
+                try {
+                    if (files[file].name.endsWith(".NTBK")) {
+                        tempBag.Notebooks.push(JSON.parse(utf8Decode.decode(await readBinaryFile(files[file].path))));
+                        tempBag.Length += 1;
+                    }
+
+                } catch (err) {
+                    console.log(err)
+                }
+            }
+        } catch (err) {
+            await createDir('notebook//saves', {dir: BaseDirectory.Document, recursive: true});
+        }
+        useBag(tempBag);
+        localStorage.setItem("bag",JSON.stringify(tempBag));
+    }
+
+    function parseBookbag() {
+        let element: JSX.Element[] = []
+        if (bag == null) {
+            return element
+        }
+        for (const notebook in bag.Notebooks) {
+            element.push(
+                <Link href={`/notebook/${notebook}`}>
+                    <button
+                        className={"h-[42px] w-[100%] bg-black border-x-2 border-gray-500 hover:bg-cyan-400 hover:bg-opacity-30 bg-opacity-10 hover:border-blue-500 transition-colors duration-300"}>{bag.Notebooks[notebook].title} {getMonthDayY(bag.Notebooks[notebook].date)}
+                    </button>
+                </Link>
+            )
+        }
+        return element
+    }
+
+    useEffect(() => {
+        GetBag()
+    }, [])
     return (
 
         <div className={""}>
@@ -104,12 +164,29 @@ const Home: NextPage = () => {
 
             <main className={"mt-24"}>
                 {SwitchMenu()}
-                <div className={"w-[460px] z-0 relative border-black font-mono rounded-md mt-8 m-auto"}>
-                    <button
-                        className={"h-[42px] w-[100%] relative bg-black border-2 border-gray-500 hover:bg-cyan-400 hover:bg-opacity-30 bg-opacity-10 hover:border-blue-500 transition-colors duration-300"}>Load
-                        notebooks
-                    </button>
-                </div>
+
+                {load ?
+                    <div onClick={function Edit() {
+                        useLoad(false)
+                    }}
+                         className={"w-[460px] max-h-[9999px] transition-all duration-300 border-b-2 overflow-hidden z-0 relative border-black font-mono rounded-md mt-8 m-auto"}>
+                        <button
+                            className={"h-[42px] w-[100%] relative bg-black border-2 border-gray-500 hover:bg-cyan-400 hover:bg-opacity-30 bg-opacity-10 hover:border-blue-500 transition-colors duration-300"}>Load
+                            notebooks
+                        </button>
+                        {parseBookbag()}
+                    </div>
+                    :
+                    <div
+                        className={"w-[460px] max-h-[42px] overflow-hidden z-0 relative transition-all duration-300 border-black font-mono rounded-md mt-8 mb-24 m-auto"}>
+                        <button onClick={function Edit() {
+                            useLoad(true)
+                        }}
+                                className={"h-[42px] w-[100%] relative bg-black border-2 border-gray-500 hover:bg-cyan-400 hover:bg-opacity-30 bg-opacity-10 hover:border-blue-500 transition-colors duration-300"}>Load
+                            notebooks
+                        </button>
+                        {parseBookbag()}
+                    </div>}
             </main>
 
 
